@@ -86,21 +86,21 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="cursor: pointer;" @click="toggleSort('s.rowid')">
-                Réf. <SortIcon field="s.rowid" :current="sortField" :order="sortOrder" />
+              <th style="cursor: pointer;" @click="toggleSort('t.rowid')">
+                Réf. <SortIcon field="t.rowid" :current="sortField" :order="sortOrder" />
               </th>
               <th>Libellé</th>
               <th style="cursor: pointer;" @click="toggleSort('u.lastname')">
                 Employé <SortIcon field="u.lastname" :current="sortField" :order="sortOrder" />
               </th>
-              <th style="cursor: pointer;" @click="toggleSort('s.datesp')">
-                Date début <SortIcon field="s.datesp" :current="sortField" :order="sortOrder" />
+              <th style="cursor: pointer;" @click="toggleSort('t.datesp')">
+                Date début <SortIcon field="t.datesp" :current="sortField" :order="sortOrder" />
               </th>
-              <th style="cursor: pointer;" @click="toggleSort('s.dateep')">
-                Date fin <SortIcon field="s.dateep" :current="sortField" :order="sortOrder" />
+              <th style="cursor: pointer;" @click="toggleSort('t.dateep')">
+                Date fin <SortIcon field="t.dateep" :current="sortField" :order="sortOrder" />
               </th>
-              <th style="text-align: right; cursor: pointer;" @click="toggleSort('s.amount')">
-                Montant <SortIcon field="s.amount" :current="sortField" :order="sortOrder" />
+              <th style="text-align: right; cursor: pointer;" @click="toggleSort('t.amount')">
+                Montant <SortIcon field="t.amount" :current="sortField" :order="sortOrder" />
               </th>
               <th style="text-align: right;">Déjà réglé</th>
               <th style="text-align: right;">Reste à payer</th>
@@ -166,7 +166,7 @@ import { Plus, Search, Eye, Loader2 } from 'lucide-vue-next'
 import {
   getSalaries, getUsers, getPaymentTypes,
   formatDate, formatAmount, getSalaryStatusLabel, getSalaryStatusClass
-} from '../../services/salaryServices.js'
+} from './salaryServices.js'
 
 // ─── État ──────────────────────────────────────────
 const salaries = ref([])
@@ -177,7 +177,7 @@ const error = ref(null)
 
 const currentPage = ref(0)
 const pageSize = 50
-const sortField = ref('s.rowid')
+const sortField = ref('t.rowid')
 const sortOrder = ref('DESC')
 
 const filters = ref({
@@ -211,21 +211,21 @@ function getResteAPayer(sal) {
 function buildSqlFilters() {
   const parts = []
   if (filters.value.label)
-    parts.push(`(s.label:like:'%${filters.value.label}%')`)
+    parts.push(`(t.label:like:'%${filters.value.label}%')`)
   if (filters.value.fk_user)
-    parts.push(`(s.fk_user:=:${filters.value.fk_user})`)
+    parts.push(`(t.fk_user:=:${filters.value.fk_user})`)
   if (filters.value.paye !== '')
-    parts.push(`(s.paye:=:${filters.value.paye})`)
+    parts.push(`(t.paye:=:${filters.value.paye})`)
   if (filters.value.datesp_from) {
     const ts = Math.floor(new Date(filters.value.datesp_from).getTime() / 1000)
-    parts.push(`(s.datesp:>=:${ts})`)
+    parts.push(`(t.datesp:>=:${ts})`)
   }
   if (filters.value.datesp_to) {
     const ts = Math.floor(new Date(filters.value.datesp_to).getTime() / 1000)
-    parts.push(`(s.datesp:<=:${ts})`)
+    parts.push(`(t.datesp:<=:${ts})`)
   }
   if (filters.value.type_payment_code)
-    parts.push(`(s.type_payment_code:=:'${filters.value.type_payment_code}')`)
+    parts.push(`(t.type_payment_code:=:'${filters.value.type_payment_code}')`)
   return parts.join(' AND ') || undefined
 }
 
