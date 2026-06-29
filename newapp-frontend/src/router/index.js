@@ -5,19 +5,20 @@ import BackofficeLayout from '../layouts/BackofficeLayout.vue';
 import FrontofficeLayout from '../layouts/FrontofficeLayout.vue';
 
 // Frontoffice Pages
-import EmployeeList from '../views/frontoffice/EmployeeList.vue';
+import SalaryList   from '../views/frontoffice/SalaryList.vue';
 import SalaryCreate from '../views/frontoffice/SalaryCreate.vue';
+import SalaryDetail from '../views/frontoffice/SalaryDetail.vue';
 
 // Backoffice Pages
-import Login from '../views/backoffice/Login.vue';
+import Login     from '../views/backoffice/Login.vue';
 import Dashboard from '../views/backoffice/Dashboard.vue';
-import Import from '../views/backoffice/Import.vue';
-import Reset from '../views/backoffice/Reset.vue';
+import Import    from '../views/backoffice/Import.vue';
+import Reset     from '../views/backoffice/Reset.vue';
 
 const routes = [
   {
     path: '/',
-    redirect: '/frontoffice/employees'
+    redirect: '/frontoffice/salary'
   },
   {
     path: '/frontoffice',
@@ -25,17 +26,23 @@ const routes = [
     children: [
       {
         path: '',
-        redirect: '/frontoffice/employees'
+        redirect: '/frontoffice/salary'
       },
       {
-        path: 'employees',
-        name: 'EmployeeList',
-        component: EmployeeList
+        path: 'salary',
+        name: 'SalaryList',
+        component: SalaryList
       },
       {
         path: 'salary/create',
         name: 'SalaryCreate',
         component: SalaryCreate
+      },
+      {
+        path: 'salary/:id',
+        name: 'SalaryDetail',
+        component: SalaryDetail,
+        props: true
       }
     ]
   },
@@ -77,10 +84,10 @@ const router = createRouter({
   routes
 });
 
-// Simple Auth Guard (Mock)
+// Simple Auth Guard
 router.beforeEach((to, from, next) => {
   const isAuthenticated = localStorage.getItem('isBackofficeAuthenticated') === 'true';
-  
+
   if (to.meta.requiresAuth && !isAuthenticated) {
     next({ name: 'Login' });
   } else if (to.name === 'Login' && isAuthenticated) {
