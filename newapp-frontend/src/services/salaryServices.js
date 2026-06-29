@@ -8,16 +8,16 @@ import { dolibarrApi } from './dolibarrServices.js'
  * Récupère la liste de tous les salaires.
  * @param {Object} params - Filtres optionnels : { sqlfilters, limit, page, sortfield, sortorder }
  *   sqlfilters exemples :
- *     "(s.label:like:'%Salaire%')"
- *     "(s.datesp:>=:'2026-01-01') AND (s.dateep:<=:'2026-12-31')"
- *     "(s.paye:=:'0')"         → non payés
- *     "(s.fk_user:=:5)"        → par utilisateur
+ *     "(t.label:like:'%Salaire%')"
+ *     "(t.datesp:>=:1746057600) AND (t.dateep:<=:1748649600)"
+ *     "(t.paye:=:'0')"         → non payés
+ *     "(t.fk_user:=:5)"        → par utilisateur
  */
 export async function getSalaries(params = {}) {
   const query = buildQueryString({
     limit: params.limit ?? 100,
     page: params.page ?? 0,
-    sortfield: params.sortfield ?? 's.rowid',
+    sortfield: params.sortfield ?? 't.rowid',
     sortorder: params.sortorder ?? 'DESC',
     sqlfilters: params.sqlfilters ?? undefined,
   })
@@ -58,7 +58,7 @@ export async function updateSalary(id, data) {
  */
 export async function getPaymentsBySalary(salaryId) {
   const sqlfilters = `(sp.fk_salary:=:${salaryId})`
-  const query = buildQueryString({ sqlfilters, limit: 200, sortfield: 'sp.rowid', sortorder: 'ASC' })
+  const query = buildQueryString({ sqlfilters, limit: 200, sortfield: 't.rowid', sortorder: 'ASC' })
   return dolibarrApi.get(`/salaries/payments${query}`)
 }
 
