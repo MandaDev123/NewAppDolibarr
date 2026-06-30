@@ -77,7 +77,17 @@ function parsePaiements(rawValue) {
     if (s.startsWith('{') && s.endsWith('}')) {
       s = s.slice(1, -1)
     }
-    const parsed = JSON.parse(s)
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(`[${s}]`);
+      if (parsed.length === 1 && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
+        parsed = parsed[0];
+      }
+    } catch (e) {
+      parsed = JSON.parse(s);
+    }
+
     if (!Array.isArray(parsed)) return []
 
     return parsed
@@ -87,7 +97,7 @@ function parsePaiements(rawValue) {
         amount:  parseAmount(String(amount))
       }))
       .filter(p => p.amount > 0)
-  } catch {
+  } catch (err) {
     return []
   }
 }
