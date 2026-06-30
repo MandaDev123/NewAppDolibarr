@@ -24,8 +24,7 @@ function parseAmount(value) {
 }
 
 /**
- * "01/03/2026" → timestamp unix (secondes)
- * Accepte aussi "2026-03-01" (ISO).
+ * "01/03/2026" ou "2026-03-01" → timestamp unix (secondes)
  */
 function parseDateToTimestamp(dateStr) {
   if (!dateStr) return null
@@ -42,13 +41,83 @@ function parseDateToTimestamp(dateStr) {
 }
 
 /**
+ * "DD/MM/YY" ou "DD/MM/YYYY" → timestamp unix (secondes)
+ * Utilisé pour les dates courtes des paiements dans le CSV.
+ *   "08/03/26" → 2026-03-08
+ *   "08/03/2026" → 2026-03-08
+ */
+function parseShortDate(dateStr) {
+  if (!dateStr) return null
+  const parts = String(dateStr).trim().split('/')
+  if (parts.length !== 3) return null
+  let [day, month, year] = parts
+  if (year.length === 2) {
+    year = (parseInt(year, 10) >= 50 ? '19' : '20') + year
+  }
+  const ts = Math.floor(new Date(`${year}-${month}-${day}T12:00:00`).getTime() / 1000)
+  return isNaN(ts) ? null : ts
+}
+
+/**
+ * Parse la colonne "paiement" du CSV.
+ *
+ * Formats gérés (après parsing PapaParse) :
+ *   {[["08/03/26",890]]}
+ *   {[["08/03/26",480],["08/03/26",300]]}
+ *   (vide / null / undefined)  → []
+ *
+ * Retourne : [{ dateStr: "08/03/26", amount: 890 }, …]
+ */
+function parsePaiements(rawValue) {
+  if (!rawValue || !String(rawValue).trim()) return []
+
+  try {
+    let s = String(rawValue).trim()
+    // Retirer les accolades wrappantes : "{[…]}" → "[…]"
+    if (s.startsWith('{') && s.endsWith('}')) {
+      s = s.slice(1, -1)
+    }
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(`[${s}]`);
+      if (parsed.length === 1 && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
+        parsed = parsed[0];
+      }
+    } catch (e) {
+      parsed = JSON.parse(s);
+    }
+
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .filter(entry => Array.isArray(entry) && entry.length >= 2)
+      .map(([dateStr, amount]) => ({
+        dateStr: String(dateStr).trim(),
+        amount:  parseAmount(String(amount))
+      }))
+      .filter(p => p.amount > 0)
+  } catch (err) {
+    return []
+  }
+}
+
+/** Correspondance code mode paiement CSV → ID Dolibarr type paiement */
+const PAYMENT_TYPE_MAP = {
+  'LIQ': 4, 'ESP': 4,
+  'CB':  2,
+  'CHQ': 3,
+  'VIR': 6,
+}
+
+/**
  * Table de correspondance en mémoire :
  *   ref_employe (CSV) → ID Dolibarr
  */
 const csvRefToDolibarrIdMap = {}
 
 // ─────────────────────────────────────────────────────────────────
-// 1. IMPORT DES EMPLOYÉS
+// 1. IMPORT DES EMPLOYES
 // ─────────────────────────────────────────────────────────────────
 
 export async function importEmployees(file, onProgress = () => {}) {
@@ -95,111 +164,130 @@ export async function importEmployees(file, onProgress = () => {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 2. IMPORT DES SALAIRES
+// 2. IMPORT DES SALAIRES + PAIEMENTS
 // ─────────────────────────────────────────────────────────────────
-//
-// BUGS CORRIGÉS :
-//   - date_start / date_end  → remplacés par datesp / dateep  (champs réels Dolibarr)
-//   - label manquant         → ajouté (obligatoire pour que le salaire soit valide)
-//   - type_payment           → mappé depuis la colonne CSV si présente
-//   - paye                   → mappé depuis la colonne CSV si présente
-//   - Réponse POST loguée    → on log l'ID du salaire créé pour vérification
-// ─────────────────────────────────────────────────────────────────
-
-/** Correspondance code mode paiement CSV → ID Dolibarr type paiement */
-const PAYMENT_TYPE_MAP = {
-  'LIQ':  4,  // Espèces / Liquide
-  'CB':   2,  // Carte bancaire
-  'CHQ':  3,  // Chèque
-  'VIR':  6,  // Virement
-  'ESP':  4,  // Espèces alias
-}
 
 export async function importSalaries(file, idMap, onProgress = () => {}) {
   const rows = await parseCSV(file)
   const activeMap = (idMap && Object.keys(idMap).length > 0) ? idMap : csvRefToDolibarrIdMap
 
-  let createdCount = 0
-  let errorCount   = 0
+  let salariesCreated = 0
+  let paymentsCreated = 0
+  let errorCount      = 0
 
   for (const row of rows) {
     const dolibarrUserId = activeMap[row.ref_employe]
 
     if (!dolibarrUserId) {
-      onProgress(`⚠ Salaire ignoré (réf CSV ${row.ref_employe} introuvable dans la map)`)
+      onProgress(`⚠ Salaire ignoré (réf CSV "${row.ref_employe}" introuvable dans la map)`)
       errorCount++
       continue
     }
 
-    // ── Champs obligatoires ──────────────────────────────────────
+    // ── Validation des champs obligatoires ──────────────────────
     const datesp = parseDateToTimestamp(row.date_debut)
     const dateep = parseDateToTimestamp(row.date_fin)
     const amount = parseAmount(row.montant)
 
     if (!datesp || !dateep) {
-      onProgress(`⚠ Salaire ignoré (dates invalides) : debut="${row.date_debut}" fin="${row.date_fin}"`)
+      onProgress(`⚠ Dates invalides — debut="${row.date_debut}" fin="${row.date_fin}"`)
       errorCount++
       continue
     }
     if (!amount) {
-      onProgress(`⚠ Salaire ignoré (montant nul) pour ref_employe ${row.ref_employe}`)
+      onProgress(`⚠ Montant nul pour ref_employe=${row.ref_employe}`)
       errorCount++
       continue
     }
 
-    // ── Libellé (label) — obligatoire dans Dolibarr ─────────────
+    // ── Parser les paiements du CSV AVANT création du salaire ────
+    const paiements = parsePaiements(row.paiement)
+    const totalPaye = paiements.reduce((s, p) => s + p.amount, 0)
+
+    // Statut payé automatique : 1 si somme paiements >= montant
+    const paye = totalPaye >= amount ? '1' : '0'
+
     const label = row.label || row.libelle || 'Salaire'
 
-    // ── Mode de paiement (optionnel) ─────────────────────────────
     let type_payment
     if (row.mode_paiement) {
       const code = String(row.mode_paiement).toUpperCase().trim()
-      type_payment = PAYMENT_TYPE_MAP[code] ?? undefined
+      type_payment = PAYMENT_TYPE_MAP[code]
     }
 
-    // ── Statut payé (optionnel) ──────────────────────────────────
-    const paye = row.paye !== undefined ? String(row.paye) : '0'
-
-    const payload = {
+    const salaryPayload = {
       fk_user: String(dolibarrUserId),
       label,
       amount,
-      datesp,          // ← timestamp début de période (était date_start → ignoré par Dolibarr)
-      dateep,          // ← timestamp fin de période   (était date_end  → ignoré par Dolibarr)
+      datesp,
+      dateep,
       paye,
     }
-    if (type_payment) payload.type_payment = type_payment
-    if (row.note_private) payload.note_private = row.note_private
+    if (type_payment)     salaryPayload.type_payment  = type_payment
+    if (row.note_private) salaryPayload.note_private  = row.note_private
 
     onProgress(
-      `Création du salaire "${label}" pour employé #${dolibarrUserId}` +
-      ` (${row.date_debut} → ${row.date_fin}, ${amount} MGA)…`
+      `Création salaire "${label}" — employé #${dolibarrUserId}` +
+      ` (${row.date_debut} → ${row.date_fin}, ${amount} MGA,` +
+      ` ${paiements.length} paiement(s) à insérer)…`
     )
 
+    // ── Créer le salaire ─────────────────────────────────────────
+    let salaryDolibarrId
     try {
-      const resp = await dolibarrApi.post('/salaries', payload)
-      const newId = typeof resp === 'object' ? resp.id : resp
-      onProgress(`✅ Salaire créé (ID Dolibarr: ${newId})`)
-      createdCount++
+      const resp = await dolibarrApi.post('/salaries', salaryPayload)
+      salaryDolibarrId = String(typeof resp === 'object' ? resp.id : resp)
+      onProgress(`✅ Salaire créé (ID: ${salaryDolibarrId}, payé: ${paye === '1' ? 'Oui' : 'Non'})`)
+      salariesCreated++
     } catch (err) {
-      onProgress(`❌ Échec création salaire ref_employe=${row.ref_employe} : ${err.message}`)
+      onProgress(`❌ Échec création salaire ref=${row.ref_salaire} : ${err.message}`)
       errorCount++
+      continue  // Impossible d'insérer des paiements sans salaire
+    }
+
+    // ── Créer chaque paiement lié au salaire ─────────────────────
+    for (let i = 0; i < paiements.length; i++) {
+      const p        = paiements[i]
+      const datepaye = parseShortDate(p.dateStr)
+
+      if (!datepaye) {
+        onProgress(`  ⚠ Paiement ${i + 1} ignoré (date invalide : "${p.dateStr}")`)
+        continue
+      }
+
+      const paymentPayload = {
+        datepaye:       datepaye,
+        amount:         p.amount,
+        fk_typepayment: type_payment ?? 4,   // LIQ par défaut
+        paiementtype:   type_payment ?? 4,
+        chid:           salaryDolibarrId,
+        amounts:        { [salaryDolibarrId]: p.amount },
+        accountid:      0,
+      }
+
+      try {
+        const presp = await dolibarrApi.post(`/salaries/${salaryDolibarrId}/payments`, paymentPayload)
+        const pid   = typeof presp === 'object' ? presp.id : presp
+        onProgress(
+          `  ✅ Paiement ${i + 1}/${paiements.length} — ID: ${pid},` +
+          ` date: ${p.dateStr}, montant: ${p.amount} MGA`
+        )
+        paymentsCreated++
+      } catch (err) {
+        onProgress(`  ❌ Échec paiement ${i + 1} (salaire #${salaryDolibarrId}) : ${err.message}`)
+        errorCount++
+      }
     }
   }
 
-  onProgress(`Salaires importés : ${createdCount} créé(s), ${errorCount} erreur(s).`)
+  onProgress(
+    `Import terminé — ${salariesCreated} salaire(s) et ${paymentsCreated} paiement(s) créé(s)` +
+    `${errorCount > 0 ? `, ${errorCount} erreur(s)` : ''}.`
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────
 // 3. IMPORT DES IMAGES DE PROFIL (ZIP)
-// ─────────────────────────────────────────────────────────────────
-//
-// BUG CORRIGÉ :
-//   - modulepart 'user' via /documents/upload → "not implemented yet"
-//     dans Dolibarr 23 (api_documents.class.php)
-//   - Solution : PUT /users/{id} avec le champ "photo" en base64
-//     Dolibarr détecte le base64, écrit le fichier dans
-//     htdocs/documents/users/user/{id}/photos/ et met à jour llx_user.photo
 // ─────────────────────────────────────────────────────────────────
 
 export async function importImages(zipFile, idMap, onProgress = () => {}) {
@@ -221,8 +309,8 @@ export async function importImages(zipFile, idMap, onProgress = () => {}) {
   let errorCount   = 0
 
   for (const zipEntry of imageFiles) {
-    const filename   = zipEntry.name.split('/').pop()                  // "1.png"
-    const refEmploye = filename.replace(/\.[^.]+$/, '').trim()         // "1"
+    const filename   = zipEntry.name.split('/').pop()
+    const refEmploye = filename.replace(/\.[^.]+$/, '').trim()
 
     onProgress(`Analyse de l'image ${filename} (ref: ${refEmploye})…`)
 
@@ -235,40 +323,30 @@ export async function importImages(zipFile, idMap, onProgress = () => {}) {
     onProgress(`Téléversement de l'image pour l'employé ID #${dolibarrUserId}…`)
 
     try {
-      // Lire le contenu en base64
       const base64Content = await zipEntry.async('base64')
-
-      // Détecter le type MIME depuis l'extension
       const ext = filename.split('.').pop().toLowerCase()
       const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
                      : ext === 'png'                   ? 'image/png'
                      : ext === 'gif'                   ? 'image/gif'
                      : 'image/jpeg'
 
-      // ── Méthode 1 : PUT /users/{id} avec champ "photo" ─────────
-      // Dolibarr 23 accepte un objet avec "photo" contenant
-      // le data URI complet ou le base64 brut.
-      const dataUri = `data:${mimeType};base64,${base64Content}`
-
       await dolibarrApi.put(`/users/${dolibarrUserId}`, {
-        photo: dataUri
+        photo: `data:${mimeType};base64,${base64Content}`
       })
 
       onProgress(`✅ Image ${filename} envoyée (employé ID #${dolibarrUserId})`)
       successCount++
 
-    } catch (err) {
-      // ── Fallback : PUT avec base64 brut sans data URI ───────────
+    } catch {
+      // Fallback : base64 brut sans data URI
       onProgress(`⚠ Méthode data-URI échouée, tentative base64 brut…`)
       try {
         const base64Content = await zipEntry.async('base64')
-        await dolibarrApi.put(`/users/${dolibarrUserId}`, {
-          photo: base64Content
-        })
-        onProgress(`✅ Image ${filename} envoyée (base64 brut, employé ID #${dolibarrUserId})`)
+        await dolibarrApi.put(`/users/${dolibarrUserId}`, { photo: base64Content })
+        onProgress(`✅ Image ${filename} envoyée (base64 brut, ID #${dolibarrUserId})`)
         successCount++
       } catch (err2) {
-        onProgress(`❌ Échec de l'envoi de l'image ${filename} : ${err2.message}`)
+        onProgress(`❌ Échec envoi image ${filename} : ${err2.message}`)
         errorCount++
       }
     }
