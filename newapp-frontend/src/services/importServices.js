@@ -256,14 +256,17 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
       }
 
       const paymentPayload = {
-        fk_salary:      salaryDolibarrId,
         datepaye:       datepaye,
         amount:         p.amount,
         fk_typepayment: type_payment ?? 4,   // LIQ par défaut
+        paiementtype:   type_payment ?? 4,
+        chid:           salaryDolibarrId,
+        amounts:        { [salaryDolibarrId]: p.amount },
+        accountid:      0,
       }
 
       try {
-        const presp = await dolibarrApi.post('/salaries/payments', paymentPayload)
+        const presp = await dolibarrApi.post(`/salaries/${salaryDolibarrId}/payments`, paymentPayload)
         const pid   = typeof presp === 'object' ? presp.id : presp
         onProgress(
           `  ✅ Paiement ${i + 1}/${paiements.length} — ID: ${pid},` +
