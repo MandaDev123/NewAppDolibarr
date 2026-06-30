@@ -90,8 +90,8 @@
                 Réf. <SortIcon field="t.rowid" :current="sortField" :order="sortOrder" />
               </th>
               <th>Libellé</th>
-              <th style="cursor: pointer;" @click="toggleSort('u.lastname')">
-                Employé <SortIcon field="u.lastname" :current="sortField" :order="sortOrder" />
+              <th style="cursor: pointer;" @click="toggleSort('t.lastname')">
+                Employé <SortIcon field="t.lastname" :current="sortField" :order="sortOrder" />
               </th>
               <th style="cursor: pointer;" @click="toggleSort('t.datesp')">
                 Date début <SortIcon field="t.datesp" :current="sortField" :order="sortOrder" />
@@ -166,7 +166,7 @@ import { Plus, Search, Eye, Loader2 } from 'lucide-vue-next'
 import {
   getSalaries, getUsers, getPaymentTypes,
   formatDate, formatAmount, getSalaryStatusLabel, getSalaryStatusClass
-} from './salaryServices.js'
+} from '../../services/salaryServices.js'
 
 // ─── État ──────────────────────────────────────────
 const salaries = ref([])

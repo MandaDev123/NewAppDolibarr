@@ -83,9 +83,9 @@ export async function getUsers(params = {}) {
   const query = buildQueryString({
     limit: params.limit ?? 200,
     page: 0,
-    sortfield: 'u.lastname',
+    sortfield: 't.lastname',
     sortorder: 'ASC',
-    sqlfilters: "(u.statut:=:1)", // utilisateurs actifs seulement
+    sqlfilters: "(t.statut:=:1)", // utilisateurs actifs seulement
   })
   return dolibarrApi.get(`/users${query}`)
 }
