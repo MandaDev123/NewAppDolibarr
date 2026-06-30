@@ -103,7 +103,7 @@
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
           <h3 style="font-size: 1rem; font-weight: 600;">Masse salariale par genre</h3>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">Montant brut réclamé</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Montant des paiements versés</span>
         </div>
         <div style="height: 240px; position: relative; display: flex; justify-content: center;">
           <div v-if="loading" style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); gap: 0.75rem;">
@@ -210,7 +210,7 @@ async function fetchAll() {
     allPayments.value = Array.isArray(payments) ? payments : []
 
     // 3. Utilisateurs (genre + nom)
-    const users = await dolibarrApi.get('/users?limit=300&sortfield=u.lastname&sortorder=ASC&sqlfilters=(u.statut:=:1)')
+    const users = await dolibarrApi.get('/users?limit=300&sortfield=t.lastname&sortorder=ASC&sqlfilters=(t.statut:=:1)')
     const uList = Array.isArray(users) ? users : []
     const map = {}
     uList.forEach(u => {
@@ -329,18 +329,16 @@ const GENDER_COLORS = { man: '#6366f1', woman: '#10b981', '': '#f59e0b' }
 const GENDER_LABELS = { man: 'Hommes', woman: 'Femmes', '': 'Non renseigné' }
 
 const genderTotals = computed(() => {
-  // On calcule sur les fiches salaire (montant brut réclamé) de l'année
-  const salForYear = allSalaries.value.filter(s => {
-    const ts = s.datesp
-    if (!ts) return false
-    return new Date(Number(ts) * 1000).getFullYear() === selectedYear.value
-  })
+  const salaryMap = {}
+  allSalaries.value.forEach(s => { salaryMap[String(s.id)] = s })
 
   const buckets = {}
-  salForYear.forEach(sal => {
+  paymentsForYear.value.forEach(p => {
+    const sal = salaryMap[String(p.fk_salary)]
+    if (!sal) return
     const user = userMap.value[String(sal.fk_user)]
     const gender = user?.gender || ''
-    buckets[gender] = (buckets[gender] ?? 0) + parseFloat(sal.amount ?? 0)
+    buckets[gender] = (buckets[gender] ?? 0) + parseFloat(p.amount ?? 0)
   })
   return buckets
 })
