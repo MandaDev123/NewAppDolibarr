@@ -69,7 +69,15 @@ export async function getPaymentsBySalary(salaryId) {
  *   Champs optionnels : num_payment, note_private, fk_account
  */
 export async function createSalaryPayment(data) {
-  return dolibarrApi.post('/salaries/payments', data)
+  const salaryId = data.fk_salary;
+  const payload = {
+    ...data,
+    paiementtype: data.fk_typepayment,
+    chid: salaryId,
+    amounts: { [salaryId]: data.amount },
+    accountid: data.fk_account || 0
+  };
+  return dolibarrApi.post(`/salaries/${salaryId}/payments`, payload)
 }
 
 // ─────────────────────────────────────────────
@@ -80,14 +88,19 @@ export async function createSalaryPayment(data) {
  * Récupère la liste des utilisateurs actifs Dolibarr.
  */
 export async function getUsers(params = {}) {
-  const query = buildQueryString({
-    limit: params.limit ?? 200,
-    page: 0,
-    sortfield: 't.lastname',
-    sortorder: 'ASC',
-    sqlfilters: "(t.statut:=:1)", // utilisateurs actifs seulement
-  })
-  return dolibarrApi.get(`/users${query}`)
+  try {
+    const query = buildQueryString({
+      limit: params.limit ?? 200,
+      page: 0,
+      sortfield: 't.lastname',
+      sortorder: 'ASC',
+      sqlfilters: "(t.statut:=:1)", // utilisateurs actifs seulement
+    })
+    return await dolibarrApi.get(`/users${query}`)
+  } catch (e) {
+    console.warn("Could not fetch users", e);
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -98,7 +111,12 @@ export async function getUsers(params = {}) {
  * Récupère les types de paiement disponibles (espèce, chèque, virement…)
  */
 export async function getPaymentTypes() {
-  return dolibarrApi.get('/setup/paymenttypes')
+  try {
+    return await dolibarrApi.get('/setup/dictionary/payment_types')
+  } catch (e) {
+    console.warn("Could not fetch payment types", e);
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────
