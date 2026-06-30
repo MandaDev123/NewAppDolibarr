@@ -16,17 +16,23 @@ async function dolibarrRequest(endpoint, method = 'GET', body = null) {
   }
 
   const response = await fetch(`${DOLIBARR_API_URL}${endpoint}`, options)
-  
+
   if (!response.ok) {
     const errorText = await response.text()
     throw new Error(`Dolibarr API Error (${response.status}): ${errorText}`)
   }
 
-  return response.json()
+  // DELETE retourne parfois 1/true sans JSON — on gère les deux cas
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('application/json')) {
+    return response.json()
+  }
+  return response.text()
 }
 
 export const dolibarrApi = {
-  get: (endpoint) => dolibarrRequest(endpoint, 'GET'),
-  post: (endpoint, data) => dolibarrRequest(endpoint, 'POST', data),
-  put: (endpoint, data) => dolibarrRequest(endpoint, 'PUT', data)
+  get:    (endpoint)        => dolibarrRequest(endpoint, 'GET'),
+  post:   (endpoint, data)  => dolibarrRequest(endpoint, 'POST',   data),
+  put:    (endpoint, data)  => dolibarrRequest(endpoint, 'PUT',    data),
+  delete: (endpoint)        => dolibarrRequest(endpoint, 'DELETE')
 }
