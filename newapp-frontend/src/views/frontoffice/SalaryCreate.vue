@@ -30,7 +30,7 @@
             </h3>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
               <div>
-                <label class="form-label">Employé *</label>
+                <label class="form-label">Salarié *</label>
                 <select v-model="form.fk_user" class="form-input" required :disabled="loadingMeta">
                   <option value="" disabled>{{ loadingMeta ? 'Chargement…' : 'Sélectionner un employé' }}</option>
                   <option v-for="u in users" :key="u.id" :value="String(u.id)">
@@ -127,7 +127,7 @@
           </h3>
           <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.875rem;">
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: var(--text-secondary);">Employé</span>
+              <span style="color: var(--text-secondary);">Salarié</span>
               <span style="font-weight: 500; max-width: 150px; text-align: right; word-break: break-word;">{{ selectedUserName }}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">

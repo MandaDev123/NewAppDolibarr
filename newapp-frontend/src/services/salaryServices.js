@@ -144,13 +144,13 @@ export function getSalaryStatusLabel(salary) {
   if (salary.paye === '1' || salary.paye === 1) return 'Payé'
   const reste = parseFloat(salary.resteapayer ?? salary.amount ?? 0)
   const paid = parseFloat(salary.totalpaid ?? 0)
-  if (paid > 0 && reste > 0) return 'Partiel'
-  return 'Non payé'
+  if (paid > 0 && reste > 0) return 'Règlement commencé'
+  return 'Impayée'
 }
 
 export function getSalaryStatusClass(salary) {
   const label = getSalaryStatusLabel(salary)
   if (label === 'Payé') return 'badge-success'
-  if (label === 'Partiel') return 'badge-warning'
+  if (label === 'Règlement commencé') return 'badge-warning'
   return 'badge-danger'
 }

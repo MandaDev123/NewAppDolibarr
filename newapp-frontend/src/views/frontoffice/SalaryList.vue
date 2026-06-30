@@ -29,9 +29,9 @@
             <input type="text" v-model="filters.label" class="form-input" style="padding-left: 2.25rem;" placeholder="Ex: Salaire" @input="debouncedFetch" />
           </div>
         </div>
-        <!-- Employé -->
+        <!-- Salarié -->
         <div>
-          <label class="form-label">Employé</label>
+          <label class="form-label">Salarié</label>
           <select v-model="filters.fk_user" class="form-input" @change="fetchSalaries">
             <option value="">Tous les employés</option>
             <option v-for="u in users" :key="u.id" :value="u.id">
@@ -39,9 +39,9 @@
             </option>
           </select>
         </div>
-        <!-- Statut -->
+        <!-- État -->
         <div>
-          <label class="form-label">Statut</label>
+          <label class="form-label">État</label>
           <select v-model="filters.paye" class="form-input" @change="fetchSalaries">
             <option value="">Tous</option>
             <option value="0">Non payé</option>
@@ -58,9 +58,9 @@
           <label class="form-label">Date début ≤</label>
           <input type="date" v-model="filters.datesp_to" class="form-input" @change="fetchSalaries" />
         </div>
-        <!-- Mode règlement -->
+        <!-- Mode règlement par défaut -->
         <div>
-          <label class="form-label">Mode de règlement</label>
+          <label class="form-label">Mode de règlement par défaut</label>
           <select v-model="filters.type_payment_code" class="form-input" @change="fetchSalaries">
             <option value="">Tous</option>
             <option v-for="pt in paymentTypes" :key="pt.id" :value="pt.code">{{ pt.label }}</option>
@@ -90,22 +90,20 @@
                 Réf. <SortIcon field="t.rowid" :current="sortField" :order="sortOrder" />
               </th>
               <th>Libellé</th>
-              <th style="cursor: pointer;" @click="toggleSort('t.lastname')">
-                Employé <SortIcon field="t.lastname" :current="sortField" :order="sortOrder" />
-              </th>
               <th style="cursor: pointer;" @click="toggleSort('t.datesp')">
                 Date début <SortIcon field="t.datesp" :current="sortField" :order="sortOrder" />
               </th>
               <th style="cursor: pointer;" @click="toggleSort('t.dateep')">
                 Date fin <SortIcon field="t.dateep" :current="sortField" :order="sortOrder" />
               </th>
+              <th style="cursor: pointer;" @click="toggleSort('t.lastname')">
+                Salarié <SortIcon field="t.lastname" :current="sortField" :order="sortOrder" />
+              </th>
+              <th>Mode de règlement par défaut</th>
               <th style="text-align: right; cursor: pointer;" @click="toggleSort('t.amount')">
                 Montant <SortIcon field="t.amount" :current="sortField" :order="sortOrder" />
               </th>
-              <th style="text-align: right;">Déjà réglé</th>
-              <th style="text-align: right;">Reste à payer</th>
-              <th>Mode règlement</th>
-              <th>Statut</th>
+              <th>État</th>
               <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
@@ -113,17 +111,11 @@
             <tr v-for="sal in salaries" :key="sal.id">
               <td style="font-family: var(--mono); color: var(--text-muted);">{{ sal.ref }}</td>
               <td style="font-weight: 500;">{{ sal.label || '—' }}</td>
-              <td>{{ getUserName(sal.fk_user) }}</td>
               <td>{{ formatDate(sal.datesp) }}</td>
               <td>{{ formatDate(sal.dateep) }}</td>
-              <td style="text-align: right; font-weight: 600;">{{ formatAmount(sal.amount) }}</td>
-              <td style="text-align: right; color: var(--success, green);">
-                {{ formatAmount(sal.totalpaid ?? 0) }}
-              </td>
-              <td style="text-align: right;" :style="{ color: getResteAPayer(sal) > 0 ? 'var(--warning, orange)' : 'inherit' }">
-                {{ formatAmount(getResteAPayer(sal)) }}
-              </td>
+              <td>{{ getUserName(sal.fk_user) }}</td>
               <td>{{ sal.type_payment_code || '—' }}</td>
+              <td style="text-align: right; font-weight: 600;">{{ formatAmount(sal.amount) }}</td>
               <td>
                 <span :class="['badge', getSalaryStatusClass(sal)]">
                   {{ getSalaryStatusLabel(sal) }}
@@ -136,7 +128,7 @@
               </td>
             </tr>
             <tr v-if="salaries.length === 0 && !loading">
-              <td colspan="11" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+              <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-muted);">
                 Aucun salaire ne correspond à votre recherche.
               </td>
             </tr>
