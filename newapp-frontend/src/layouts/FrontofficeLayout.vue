@@ -6,9 +6,12 @@
           <Briefcase style="color: var(--accent-primary); width: 24px; height: 24px;" />
           <span style="font-weight: 700; font-size: 1.25rem;">Salarium</span>
         </div>
+        <!-- Liens du Frontoffice mis à jour -->
         <div style="display: flex; gap: 1rem; margin-left: 2rem;">
+          <router-link to="/frontoffice/salary" class="nav-link" active-class="nav-link-active">Salaires</router-link>
           <router-link to="/frontoffice/employees" class="nav-link" active-class="nav-link-active">Salariés</router-link>
           <router-link to="/frontoffice/salary/create" class="nav-link" active-class="nav-link-active">Nouveau Salaire</router-link>
+          <router-link to="/frontoffice/salary/generate" class="nav-link" active-class="nav-link-active">Générer Salaires</router-link>
         </div>
       </div>
       

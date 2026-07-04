@@ -21,6 +21,10 @@
           <Trash2 style="width: 18px; height: 18px;" />
           Réinitialisation
         </router-link>
+        <router-link to="/backoffice/feries" class="nav-item" active-class="active">
+          <Calendar style="width: 18px; height: 18px;" />
+          Jours fériés
+        </router-link>
       </nav>
       
       <div style="padding: 1.5rem; border-top: 1px solid var(--border-color);">

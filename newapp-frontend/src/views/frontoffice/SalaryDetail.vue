@@ -337,7 +337,7 @@ const resteAPayer = computed(() => {
 const employeeName = computed(() => {
   if (!salary.value) return '—'
   const u = users.value.find(u => String(u.id) === String(salary.value.fk_user))
-  return u ? `${u.lastname} ${u.firstname}` : `Utilisateur #${salary.value.fk_user}`
+  return u ? `${u.lastname || ''} ${u.firstname || ''}`.trim() || `Utilisateur #${salary.value.fk_user}` : `Utilisateur #${salary.value.fk_user}`
 })
 
 const isPaymentValid = computed(() => {

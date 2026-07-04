@@ -1,4 +1,6 @@
 import { dolibarrApi } from './dolibarrServices.js'
+// Import des fonctions liées aux jours fériés (ajuste le chemin si nécessaire)
+import { getFeries, deleteFerie } from './Feriesservices.js' 
 
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTES DE PROTECTION
@@ -50,6 +52,16 @@ async function fetchAllSalaryIds() {
   return Array.isArray(data) ? data.map(s => String(s.id)) : []
 }
 
+async function fetchAllFeriesIds() {
+  try {
+    const data = await getFeries()
+    return Array.isArray(data) ? data.map(f => String(f.id)) : []
+  } catch (error) {
+    console.error("Erreur lors de la récupération des jours fériés:", error)
+    return []
+  }
+}
+
 /**
  * Récupère tous les utilisateurs et les sépare en deux listes :
  *   - toDelete   : { id, login } — peuvent être supprimés
@@ -83,7 +95,7 @@ async function fetchAllUsers() {
 // ─────────────────────────────────────────────────────────────────
 
 async function deletePayment(id) {
-  try { await dolibarrApi.delete(`/salaries/payments/${id}`); return true }
+  try { await dolibarrApi.delete(`/salaries/${id}/payments`); return true }
   catch { return false }
 }
 
@@ -97,6 +109,11 @@ async function deleteUser(id) {
   catch { return false }
 }
 
+async function deleteFerieRecord(id) {
+  try { await deleteFerie(id); return true }
+  catch { return false }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // RESET PRINCIPAL
 // ─────────────────────────────────────────────────────────────────
@@ -106,6 +123,7 @@ async function deleteUser(id) {
  *   1. Paiements de salaires (contrainte FK → salaires)
  *   2. Fiches salaires       (contrainte FK → users)
  *   3. Utilisateurs importés (non protégés)
+ *   4. Jours fériés          (base locale)
  *
  * @param {Function} onProgress — callback({ step, total, label })
  * @returns {Promise<ResetResult>}
@@ -114,6 +132,7 @@ async function deleteUser(id) {
  * @property {number}   deletedPayments
  * @property {number}   deletedSalaries
  * @property {number}   deletedUsers
+ * @property {number}   deletedFeries
  * @property {Array}    protectedUsers   — liste des users conservés { id, login, reason }
  * @property {string[]} errors
  * @property {number}   total
@@ -123,6 +142,7 @@ export async function resetAllData(onProgress = () => {}) {
   let deletedPayments = 0
   let deletedSalaries = 0
   let deletedUsers    = 0
+  let deletedFeries   = 0
 
   // ── Phase 0 : collecte ────────────────────────────────────────
   onProgress({ step: 0, total: 0, label: 'Récupération des paiements…' })
@@ -134,11 +154,14 @@ export async function resetAllData(onProgress = () => {}) {
   onProgress({ step: 0, total: 0, label: 'Analyse des utilisateurs…' })
   const { toDelete: usersToDelete, protected: protectedUsers } = await fetchAllUsers()
 
-  const total = paymentIds.length + salaryIds.length + usersToDelete.length
+  onProgress({ step: 0, total: 0, label: 'Récupération des jours fériés…' })
+  const feriesIds = await fetchAllFeriesIds()
+
+  const total = paymentIds.length + salaryIds.length + usersToDelete.length + feriesIds.length
 
   if (total === 0) {
     return {
-      deletedPayments: 0, deletedSalaries: 0, deletedUsers: 0,
+      deletedPayments: 0, deletedSalaries: 0, deletedUsers: 0, deletedFeries: 0,
       protectedUsers, errors: [], total: 0
     }
   }
@@ -174,16 +197,16 @@ export async function resetAllData(onProgress = () => {}) {
   }
 
   // ── Phase 3 : utilisateurs importés ──────────────────────────
-  const offset = paymentIds.length + salaryIds.length
+  const offsetUsers = paymentIds.length + salaryIds.length
   onProgress({
-    step: offset,
+    step: offsetUsers,
     total,
     label: `Suppression de ${usersToDelete.length} utilisateur(s)…`
   })
   for (let i = 0; i < usersToDelete.length; i++) {
     const u = usersToDelete[i]
     onProgress({
-      step: offset + i + 1,
+      step: offsetUsers + i + 1,
       total,
       label: `Utilisateur "${u.login}" #${u.id} (${i + 1}/${usersToDelete.length})`
     })
@@ -192,10 +215,29 @@ export async function resetAllData(onProgress = () => {}) {
     else errors.push(`Échec suppression utilisateur "${u.login}" #${u.id}`)
   }
 
+  // ── Phase 4 : jours fériés ───────────────────────────────────
+  const offsetFeries = offsetUsers + usersToDelete.length
+  onProgress({
+    step: offsetFeries,
+    total,
+    label: `Suppression de ${feriesIds.length} jour(s) férié(s)…`
+  })
+  for (let i = 0; i < feriesIds.length; i++) {
+    onProgress({
+      step: offsetFeries + i + 1,
+      total,
+      label: `Jour férié #${feriesIds[i]} (${i + 1}/${feriesIds.length})`
+    })
+    const ok = await deleteFerieRecord(feriesIds[i])
+    if (ok) deletedFeries++
+    else errors.push(`Échec suppression jour férié #${feriesIds[i]}`)
+  }
+
   return {
     deletedPayments,
     deletedSalaries,
     deletedUsers,
+    deletedFeries,
     protectedUsers,
     errors,
     total
@@ -211,16 +253,18 @@ export async function resetAllData(onProgress = () => {}) {
  * ainsi que la liste des utilisateurs protégés (pour info).
  */
 export async function getDataSummary() {
-  const [paymentIds, salaryIds, usersResult] = await Promise.all([
+  const [paymentIds, salaryIds, usersResult, feriesIds] = await Promise.all([
     fetchAllPaymentIds(),
     fetchAllSalaryIds(),
     fetchAllUsers(),
+    fetchAllFeriesIds(),
   ])
 
   return {
     paymentsCount:  paymentIds.length,
     salariesCount:  salaryIds.length,
     usersCount:     usersResult.toDelete.length,
+    feriesCount:    feriesIds.length,
     protectedUsers: usersResult.protected,   // [{ id, login, reason }]
   }
 }
