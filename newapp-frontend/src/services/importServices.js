@@ -42,9 +42,6 @@ function parseDateToTimestamp(dateStr) {
 
 /**
  * "DD/MM/YY" ou "DD/MM/YYYY" → timestamp unix (secondes)
- * Utilisé pour les dates courtes des paiements dans le CSV.
- *   "08/03/26" → 2026-03-08
- *   "08/03/2026" → 2026-03-08
  */
 function parseShortDate(dateStr) {
   if (!dateStr) return null
@@ -60,36 +57,28 @@ function parseShortDate(dateStr) {
 
 /**
  * Parse la colonne "paiement" du CSV.
- *
- * Formats gérés (après parsing PapaParse) :
+ * Formats gérés :
  *   {[["08/03/26",890]]}
  *   {[["08/03/26",480],["08/03/26",300]]}
- *   (vide / null / undefined)  → []
- *
- * Retourne : [{ dateStr: "08/03/26", amount: 890 }, …]
+ *   (vide / null / undefined) → []
  */
 function parsePaiements(rawValue) {
   if (!rawValue || !String(rawValue).trim()) return []
-
   try {
     let s = String(rawValue).trim()
-    // Retirer les accolades wrappantes : "{[…]}" → "[…]"
     if (s.startsWith('{') && s.endsWith('}')) {
       s = s.slice(1, -1)
     }
-    
-    let parsed;
+    let parsed
     try {
-      parsed = JSON.parse(`[${s}]`);
+      parsed = JSON.parse(`[${s}]`)
       if (parsed.length === 1 && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
-        parsed = parsed[0];
+        parsed = parsed[0]
       }
-    } catch (e) {
-      parsed = JSON.parse(s);
+    } catch {
+      parsed = JSON.parse(s)
     }
-
     if (!Array.isArray(parsed)) return []
-
     return parsed
       .filter(entry => Array.isArray(entry) && entry.length >= 2)
       .map(([dateStr, amount]) => ({
@@ -97,7 +86,7 @@ function parsePaiements(rawValue) {
         amount:  parseAmount(String(amount))
       }))
       .filter(p => p.amount > 0)
-  } catch (err) {
+  } catch {
     return []
   }
 }
@@ -117,7 +106,7 @@ const PAYMENT_TYPE_MAP = {
 const csvRefToDolibarrIdMap = {}
 
 // ─────────────────────────────────────────────────────────────────
-// 1. IMPORT DES EMPLOYES
+// 1. IMPORT DES EMPLOYÉS
 // ─────────────────────────────────────────────────────────────────
 
 export async function importEmployees(file, onProgress = () => {}) {
@@ -126,13 +115,21 @@ export async function importEmployees(file, onProgress = () => {}) {
   for (const row of rows) {
     onProgress(`Traitement de l'employé : ${row.nom} (Réf: ${row.ref_employe})…`)
 
+    // ── Payload de base ──────────────────────────────────────────
     const payload = {
       lastname:    row.nom,
       login:       row.identifiant,
       password:    row.mdp || 'Dolibarr1234!',
       gender:      row.genre === 'homme' ? 'man' : 'woman',
       weeklyhours: row.heure_travail_semaine ? parseFloat(row.heure_travail_semaine) : 35,
-      statut:      1
+      statut:      1,
+    }
+
+    // ── Colonne "poste" → champ natif Dolibarr "job" ────────────
+    // llx_user.job stocke le poste / la fonction de l'utilisateur.
+    // On ne l'envoie que si la colonne est renseignée dans le CSV.
+    if (row.poste && String(row.poste).trim()) {
+      payload.job = String(row.poste).trim()
     }
 
     try {
@@ -146,10 +143,11 @@ export async function importEmployees(file, onProgress = () => {}) {
         dolibarrUserId = existingUsers[0].id
         onProgress(`ℹ L'employé ${row.nom} existe déjà (ID: ${dolibarrUserId}). Mise à jour…`)
         await dolibarrApi.put(`/users/${dolibarrUserId}`, payload)
+        onProgress(`✅ Employé mis à jour : ${row.nom}${payload.job ? ` — Poste : ${payload.job}` : ''}`)
       } else {
         const responseData = await dolibarrApi.post('/users', payload)
         dolibarrUserId = typeof responseData === 'object' ? responseData.id : responseData
-        onProgress(`✅ Nouvel employé créé : ${row.nom} (ID Dolibarr: ${dolibarrUserId})`)
+        onProgress(`✅ Nouvel employé créé : ${row.nom} (ID: ${dolibarrUserId})${payload.job ? ` — Poste : ${payload.job}` : ''}`)
       }
 
       csvRefToDolibarrIdMap[row.ref_employe] = dolibarrUserId
@@ -184,7 +182,6 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
       continue
     }
 
-    // ── Validation des champs obligatoires ──────────────────────
     const datesp = parseDateToTimestamp(row.date_debut)
     const dateep = parseDateToTimestamp(row.date_fin)
     const amount = parseAmount(row.montant)
@@ -200,11 +197,8 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
       continue
     }
 
-    // ── Parser les paiements du CSV AVANT création du salaire ────
     const paiements = parsePaiements(row.paiement)
     const totalPaye = paiements.reduce((s, p) => s + p.amount, 0)
-
-    // Statut payé automatique : 1 si somme paiements >= montant
     const paye = totalPaye >= amount ? '1' : '0'
 
     const label = row.label || row.libelle || 'Salaire'
@@ -232,7 +226,6 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
       ` ${paiements.length} paiement(s) à insérer)…`
     )
 
-    // ── Créer le salaire ─────────────────────────────────────────
     let salaryDolibarrId
     try {
       const resp = await dolibarrApi.post('/salaries', salaryPayload)
@@ -242,10 +235,9 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
     } catch (err) {
       onProgress(`❌ Échec création salaire ref=${row.ref_salaire} : ${err.message}`)
       errorCount++
-      continue  // Impossible d'insérer des paiements sans salaire
+      continue
     }
 
-    // ── Créer chaque paiement lié au salaire ─────────────────────
     for (let i = 0; i < paiements.length; i++) {
       const p        = paiements[i]
       const datepaye = parseShortDate(p.dateStr)
@@ -258,7 +250,7 @@ export async function importSalaries(file, idMap, onProgress = () => {}) {
       const paymentPayload = {
         datepaye:       datepaye,
         amount:         p.amount,
-        fk_typepayment: type_payment ?? 4,   // LIQ par défaut
+        fk_typepayment: type_payment ?? 4,
         paiementtype:   type_payment ?? 4,
         chid:           salaryDolibarrId,
         amounts:        { [salaryDolibarrId]: p.amount },
@@ -333,12 +325,10 @@ export async function importImages(zipFile, idMap, onProgress = () => {}) {
       await dolibarrApi.put(`/users/${dolibarrUserId}`, {
         photo: `data:${mimeType};base64,${base64Content}`
       })
-
       onProgress(`✅ Image ${filename} envoyée (employé ID #${dolibarrUserId})`)
       successCount++
 
     } catch {
-      // Fallback : base64 brut sans data URI
       onProgress(`⚠ Méthode data-URI échouée, tentative base64 brut…`)
       try {
         const base64Content = await zipEntry.async('base64')
