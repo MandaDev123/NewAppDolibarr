@@ -401,16 +401,15 @@ async function submitPayment() {
     const datets = Math.floor(new Date(paymentForm.value.datepaye).getTime() / 1000)
 
     const payload = {
-      fk_salary: String(route.params.id),
       datepaye: datets,
       amount: paymentForm.value.amount,
-      fk_typepayment: paymentForm.value.fk_typepayment,
+      paiementtype: paymentForm.value.fk_typepayment,
       num_payment: paymentForm.value.num_payment || '',
-      note_private: paymentForm.value.note_private || '',
+      note: paymentForm.value.note_private || '',
     }
-    if (paymentForm.value.fk_account) payload.fk_account = paymentForm.value.fk_account
+    if (paymentForm.value.fk_account) payload.accountid = paymentForm.value.fk_account
 
-    await createSalaryPayment(payload)
+    await createSalaryPayment(route.params.id, payload)
 
     // Auto-classement "payé" si demandé et si reste = 0 après ce paiement
     if (paymentForm.value.autoClose) {
