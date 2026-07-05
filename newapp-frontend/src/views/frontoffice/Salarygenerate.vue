@@ -61,6 +61,7 @@
           <div v-for="(log, i) in progressLog" :key="i"
             :style="{ color: log.status === 'ok' ? 'var(--success,#10b981)' : 'var(--danger)' }">
             {{ log.status === 'ok' ? '✅' : '❌' }} {{ log.name }}
+            <span v-if="log.status === 'ok' && log.autoPaid" style="color:var(--text-muted);"> — réglé automatiquement</span>
             <span v-if="log.status === 'error'" style="color:var(--text-muted);"> — {{ log.error }}</span>
           </div>
         </div>
@@ -174,6 +175,13 @@
                 </div>
               </div>
               <div>
+                <label class="form-label">Marquer comme payé</label>
+                <select v-model="salaryParams.paye" class="form-input">
+                  <option value="0">Non</option>
+                  <option value="1">Oui — entièrement réglé</option>
+                </select>
+              </div>
+              <div>
                 <label class="form-label">Mode de règlement</label>
                 <select v-model="salaryParams.type_payment" class="form-input">
                   <option value="">— Non défini —</option>
@@ -183,6 +191,19 @@
               <div>
                 <label class="form-label">Note privée</label>
                 <input v-model="salaryParams.note_private" type="text" class="form-input" placeholder="Commentaire interne…" />
+              </div>
+
+              <!-- Règlement automatique : visible seulement si "payé = Oui" -->
+              <div v-if="salaryParams.paye === '1'" style="padding: 0.875rem; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.25); border-radius: var(--radius-md);">
+                <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <Zap style="width: 14px; height: 14px; color: var(--success, #10b981); flex-shrink: 0;" />
+                  Tous les salaires générés seront marqués payés. Choisissez un <strong>mode de règlement</strong> et une <strong>date de paiement</strong> pour que le règlement soit enregistré automatiquement pour chaque employé — sans saisie manuelle après coup.
+                </p>
+                <label class="form-label">Date de paiement {{ salaryParams.type_payment ? '*' : '' }}</label>
+                <input type="date" v-model="salaryParams.datepaye" class="form-input" />
+                <p v-if="autoPayMissingDate" style="color: var(--danger); font-size: 0.75rem; margin-top: 0.35rem;">
+                  Veuillez indiquer la date de paiement pour activer le règlement automatique.
+                </p>
               </div>
             </div>
           </div>
@@ -212,6 +233,12 @@
               <div v-if="selectedUsers.length && salaryParams.amount" style="display:flex;justify-content:space-between;">
                 <span style="color:var(--text-secondary);">Total masse salariale</span>
                 <strong style="color:var(--success,#10b981);">{{ fmtAmt(selectedUsers.length * salaryParams.amount) }}</strong>
+              </div>
+              <div v-if="autoPayEnabled" style="display:flex;justify-content:space-between;border-top:1px dashed var(--border-color);padding-top:.6rem;">
+                <span style="color:var(--text-secondary);">Règlement</span>
+                <span style="color:var(--success,#10b981);font-weight:600;display:flex;align-items:center;gap:.3rem;">
+                  <Zap style="width:13px;height:13px;" /> Automatique — {{ salaryParams.datepaye ? fmtDate(salaryParams.datepaye) : 'date manquante' }}
+                </span>
               </div>
             </div>
           </div>
@@ -288,7 +315,7 @@ const progressLog   = ref([])
 const filters = ref({ gender: '', jobs: [], hoursMin: '', hoursMax: '' })
 const posteDropdownOpen = ref(false)
 const posteDropdownRef  = ref(null)
-const salaryParams = ref({ label: 'Salaire', datesp: '', dateep: '', amount: null, type_payment: '', note_private: '', paye: '0' })
+const salaryParams = ref({ label: 'Salaire', datesp: '', dateep: '', amount: null, type_payment: '', note_private: '', paye: '0', datepaye: '' })
 
 const genderOptions = [
   { value: 'man',   label: 'Homme', icon: '♂' },
@@ -298,8 +325,16 @@ const genderOptions = [
 const progressPercent = computed(() =>
   selectedUsers.value.length ? Math.round((progressStep.value / selectedUsers.value.length) * 100) : 0
 )
+// Règle métier : payé = Oui + mode de règlement choisi → règlement automatique
+// pour chaque salaire généré (nécessite une date de paiement).
+const autoPayEnabled = computed(() =>
+  salaryParams.value.paye === '1' && !!salaryParams.value.type_payment
+)
+const autoPayMissingDate = computed(() => autoPayEnabled.value && !salaryParams.value.datepaye)
+
 const canGenerate = computed(() =>
-  selectedUsers.value.length > 0 && salaryParams.value.datesp && salaryParams.value.dateep && salaryParams.value.amount > 0
+  selectedUsers.value.length > 0 && salaryParams.value.datesp && salaryParams.value.dateep &&
+  salaryParams.value.amount > 0 && !autoPayMissingDate.value
 )
 
 function fmtDate(d) { if (!d) return '—'; const [y,m,dd] = d.split('-'); return `${dd}/${m}/${y}` }
@@ -363,6 +398,11 @@ async function startGeneration() {
   }
   if (salaryParams.value.type_payment) payload.type_payment = salaryParams.value.type_payment
   if (salaryParams.value.note_private) payload.note_private = salaryParams.value.note_private
+  // Règlement automatique : transmis uniquement pour être utilisé par
+  // generateSalariesBatch (jamais envoyé à l'endpoint de création du salaire).
+  if (autoPayEnabled.value && salaryParams.value.datepaye) {
+    payload.datepaye = toTimestamp(salaryParams.value.datepaye)
+  }
 
   generating.value   = true
   progressStep.value = 0
@@ -371,7 +411,12 @@ async function startGeneration() {
   result.value = await generateSalariesBatch(userIds, payload, p => {
     progressStep.value = p.done
     const u = userMap[p.userId]
-    progressLog.value.push({ status: p.status, name: u ? `${u.lastname} ${u.firstname}` : `#${p.userId}`, error: p.error })
+    progressLog.value.push({
+      status: p.status,
+      name: u ? `${u.lastname} ${u.firstname}` : `#${p.userId}`,
+      error: p.error,
+      autoPaid: p.autoPaid,
+    })
   })
   generating.value = false
 }
