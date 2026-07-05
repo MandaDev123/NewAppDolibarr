@@ -167,6 +167,21 @@
                 </select>
               </div>
             </div>
+
+            <!-- Règlement automatique : visible seulement si "payé = Oui" -->
+            <div v-if="form.paye === '1'" style="margin-top: 1rem; padding: 0.875rem; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.25); border-radius: var(--radius-md);">
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
+                <CheckCircle style="width: 14px; height: 14px; color: var(--success, #10b981); flex-shrink: 0;" />
+                Ce salaire sera marqué payé. Choisissez un <strong>mode de règlement</strong> ci-dessous et la <strong>date de paiement</strong> pour générer automatiquement le règlement — aucune saisie supplémentaire ne sera nécessaire.
+              </p>
+              <div style="max-width: 260px;">
+                <label class="form-label">Date de paiement {{ form.type_payment ? '*' : '' }}</label>
+                <input type="date" v-model="form.datepaye" class="form-input" :required="form.paye === '1' && !!form.type_payment" />
+                <p v-if="autoPayMissingDate" style="color: var(--danger); font-size: 0.75rem; margin-top: 0.35rem;">
+                  Veuillez indiquer la date de paiement pour finaliser le règlement automatique.
+                </p>
+              </div>
+            </div>
           </section>
 
           <!-- ── SECTION : Mode de règlement ──────────────────── -->
@@ -207,15 +222,21 @@
               Mode sélectionné :
               <span class="badge badge-success">{{ paymentIcon(selectedPaymentType.code) }} {{ selectedPaymentType.label }}</span>
             </div>
+
+            <!-- Rappel règle règlement auto -->
+            <div v-if="autoPayEnabled" style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: var(--success, #10b981);">
+              <Zap style="width: 14px; height: 14px; flex-shrink: 0;" />
+              Règlement automatique activé — le paiement sera enregistré à la création.
+            </div>
           </section>
 
           <!-- ── ACTIONS ────────────────────────────────────────── -->
           <div style="display: flex; justify-content: flex-end; gap: 1rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
             <router-link to="/frontoffice/salary" class="btn btn-outline">Annuler</router-link>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
+            <button type="submit" class="btn btn-primary" :disabled="saving || (autoPayEnabled && !form.datepaye && formSubmitted)">
               <Loader2 v-if="saving" style="width: 16px; height: 16px; animation: spin 1s linear infinite;" />
               <CheckCircle v-else style="width: 16px; height: 16px;" />
-              {{ saving ? 'Enregistrement…' : 'Créer le salaire' }}
+              {{ saving ? 'Enregistrement…' : (autoPayEnabled ? 'Créer le salaire et régler' : 'Créer le salaire') }}
             </button>
           </div>
 
@@ -271,6 +292,10 @@
               </span>
               <span v-else style="color: var(--text-muted);">—</span>
             </div>
+            <div v-if="autoPayEnabled" style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: var(--text-secondary);">Date de paiement</span>
+              <span style="font-weight: 500;">{{ form.datepaye ? formatDateInput(form.datepaye) : '—' }}</span>
+            </div>
             <div style="border-top: 1px dashed var(--border-color); padding-top: 0.6rem; display: flex; justify-content: space-between; align-items: center;">
               <span style="color: var(--text-secondary); font-weight: 600;">Montant</span>
               <span style="font-size: 1.2rem; font-weight: 700;">{{ form.amount ? formatAmount(form.amount) : '—' }}</span>
@@ -278,8 +303,12 @@
           </div>
         </div>
 
-        <!-- Info paiement fractionné -->
-        <div class="card" style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.7;">
+        <!-- Info règlement -->
+        <div v-if="autoPayEnabled" class="card" style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.7; border-color: rgba(16,185,129,0.3);">
+          <strong style="color: var(--success, #10b981); display: block; margin-bottom: 0.4rem;">✅ Règlement automatique</strong>
+          Le salaire est marqué payé avec un mode de règlement défini : le paiement complet sera enregistré automatiquement à la date choisie, dès la création. Aucune saisie manuelle supplémentaire ne sera nécessaire.
+        </div>
+        <div v-else class="card" style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.7;">
           <strong style="color: var(--text-primary); display: block; margin-bottom: 0.4rem;">ℹ️ Paiement fractionné</strong>
           Après création, ouvrez la fiche du salaire pour saisir les règlements en plusieurs fois via le bouton <em>Saisir règlement</em>.
         </div>
@@ -292,8 +321,8 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, CheckCircle, Loader2, Receipt, Search, X } from 'lucide-vue-next'
-import { createSalary, getUsers, getPaymentTypes, formatAmount } from '../../services/salaryServices.js'
+import { ArrowLeft, CheckCircle, Loader2, Receipt, Search, X, Zap } from 'lucide-vue-next'
+import { createSalary, createSalaryPayment, getUsers, getPaymentTypes, formatAmount } from '../../services/salaryServices.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -319,6 +348,7 @@ const form = ref({
   amount:       null,
   type_payment: '',
   paye:         '0',
+  datepaye:     '',
   note_private: '',
 })
 
@@ -342,6 +372,17 @@ const selectedUser = computed(() =>
 
 const selectedPaymentType = computed(() =>
   paymentTypes.value.find(pt => String(pt.id) === form.value.type_payment) ?? null
+)
+
+// Règle métier : payé = Oui + mode de règlement choisi → règlement automatique
+// (nécessite une date de paiement), on n'a alors plus besoin de saisir le
+// règlement séparément après création du salaire.
+const autoPayEnabled = computed(() =>
+  form.value.paye === '1' && !!form.value.type_payment
+)
+
+const autoPayMissingDate = computed(() =>
+  formSubmitted.value && autoPayEnabled.value && !form.value.datepaye
 )
 
 const filteredUsers = computed(() => {
@@ -427,6 +468,8 @@ async function fetchMeta() {
 async function submitSalary() {
   formSubmitted.value = true
   if (!form.value.fk_user) return
+  // Règlement automatique demandé mais date de paiement manquante → on bloque.
+  if (autoPayMissingDate.value) return
 
   saving.value = true
   error.value  = null
@@ -444,6 +487,17 @@ async function submitSalary() {
 
     const result = await createSalary(payload)
     const newId  = result?.id ?? result
+
+    // Règlement automatique : payé = Oui + mode de règlement choisi + date saisie
+    // → on enregistre directement le paiement complet, sans étape manuelle.
+    if (autoPayEnabled.value && form.value.datepaye) {
+      await createSalaryPayment(newId, {
+        datepaye:     toTimestamp(form.value.datepaye),
+        amount:       form.value.amount,
+        paiementtype: form.value.type_payment,
+      })
+    }
+
     router.push(`/frontoffice/salary/${newId}`)
   } catch (e) {
     error.value = e.message
