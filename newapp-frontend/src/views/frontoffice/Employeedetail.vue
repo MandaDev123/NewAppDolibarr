@@ -111,11 +111,7 @@
           <div v-for="sal in salaries" :key="sal.id" style="border-bottom:1px solid var(--border-color);">
 
             <!-- Ligne principale salaire -->
-            <div style="display:grid;grid-template-columns:auto 1fr auto auto auto auto auto;gap:.75rem 1.5rem;align-items:center;padding:.875rem 1.25rem;cursor:pointer;"
-              @click="toggleSalary(sal.id)">
-
-              <!-- Icône expand -->
-              <ChevronRight :style="{ width: '16px', height: '16px', color: 'var(--text-muted)', transform: expandedSalaries.includes(sal.id) ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }" />
+            <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.75rem 1.5rem;align-items:center;padding:.875rem 1.25rem;">
 
               <div>
                 <span style="font-weight:600;">{{ sal.label || 'Salaire' }}</span>
@@ -139,13 +135,10 @@
               <span :class="['badge', statusClass(sal)]">{{ statusLabel(sal) }}</span>
             </div>
 
-            <!-- Sous-tableau paiements (dépliable) -->
-            <div v-if="expandedSalaries.includes(sal.id)" style="background:var(--bg-secondary);border-top:1px solid var(--border-color);">
-              <div v-if="loadingPayments[sal.id]" style="padding:1rem 2rem;color:var(--text-muted);font-size:.82rem;display:flex;align-items:center;gap:.5rem;">
-                <Loader2 style="width:14px;height:14px;animation:spin 1s linear infinite;" /> Chargement des paiements…
-              </div>
-              <div v-else-if="!paymentMap[sal.id] || paymentMap[sal.id].length === 0"
-                style="padding:1rem 2rem 1rem 3.5rem;color:var(--text-muted);font-size:.82rem;">
+            <!-- Sous-tableau paiements : toujours affiché, chargé dès l'ouverture de la page -->
+            <div style="background:var(--bg-secondary);border-top:1px solid var(--border-color);">
+              <div v-if="!paymentMap[sal.id] || paymentMap[sal.id].length === 0"
+                style="padding:1rem 2rem;color:var(--text-muted);font-size:.82rem;">
                 Aucun paiement enregistré.
                 <router-link :to="`/frontoffice/salary/${sal.id}`" style="color:var(--accent-primary,#6366f1);margin-left:.5rem;font-size:.78rem;">
                   Saisir un règlement →
@@ -154,16 +147,17 @@
               <table v-else class="data-table" style="font-size:.8rem;background:transparent;">
                 <thead>
                   <tr>
-                    <th style="padding-left:3.5rem;">Réf.</th>
+                    <th style="padding-left:1.25rem;">Réf.</th>
                     <th>Date paiement</th>
                     <th>Type</th>
                     <th>N° pièce</th>
+
                     <th style="text-align:right;">Montant</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="p in paymentMap[sal.id]" :key="p.id">
-                    <td style="padding-left:3.5rem;font-family:var(--mono);">{{ p.ref || p.id }}</td>
+                    <td style="padding-left:1.25rem;font-family:var(--mono);">{{ p.ref || p.id }}</td>
                     <td>{{ fmtTs(p.datepaye ?? p.datep) }}</td>
                     <td>{{ p.type_label || p.type_code || '—' }}</td>
                     <td>{{ p.num_payment || '—' }}</td>
@@ -214,9 +208,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Loader2, ChevronRight, Plus } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, Plus } from 'lucide-vue-next'
 import {
-  getUserById, getSalariesByUser, getPaymentsBySalary,
+  getUserById, getSalariesByUser, getAllPaymentsByUser,
   formatDate, formatAmount, getSalaryStatusLabel, getSalaryStatusClass
 } from '../../services/salaryServices.js'
 
@@ -225,11 +219,9 @@ const route = useRoute()
 const user            = ref(null)
 const salaries        = ref([])
 const paymentMap      = ref({})    // salaryId → payments[]
-const loadingPayments = ref({})    // salaryId → bool
 const loading         = ref(false)
 const loadingSalaries = ref(false)
 const error           = ref(null)
-const expandedSalaries = ref([])
 
 const COLORS = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ef4444','#14b8a6']
 function avatarColor(u) { return COLORS[(parseInt(u.id,10)||0) % COLORS.length] }
@@ -278,33 +270,16 @@ const globalStats = computed(() => {
   return { totalAmount, totalPaid, totalReste: Math.max(0, totalAmount - totalPaid), paidCount, unpaidCount }
 })
 
-// Dépliage d'un salaire + chargement lazy des paiements
-async function toggleSalary(salaryId) {
-  const idx = expandedSalaries.value.indexOf(salaryId)
-  if (idx >= 0) {
-    expandedSalaries.value.splice(idx, 1)
-    return
-  }
-  expandedSalaries.value.push(salaryId)
-  if (!paymentMap.value[salaryId]) {
-    loadingPayments.value[salaryId] = true
-    try {
-      const data = await getPaymentsBySalary(salaryId)
-      paymentMap.value[salaryId] = Array.isArray(data) ? data : []
-    } catch {
-      paymentMap.value[salaryId] = []
-    } finally {
-      loadingPayments.value[salaryId] = false
-    }
-  }
-}
-
 onMounted(async () => {
   loading.value = true
   try {
     user.value = await getUserById(route.params.id)
     loadingSalaries.value = true
     salaries.value = await getSalariesByUser(route.params.id)
+    // Chargement immédiat de TOUS les paiements de TOUS les salaires,
+    // afin que les KPIs en haut de page et les tableaux de paiements en bas
+    // soient déjà complets à l'affichage — aucun clic n'est nécessaire.
+    paymentMap.value = await getAllPaymentsByUser(salaries.value)
   } catch (e) {
     error.value = e.message
   } finally {

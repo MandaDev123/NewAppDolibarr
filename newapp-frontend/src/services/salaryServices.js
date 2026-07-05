@@ -84,12 +84,34 @@ export async function getPaymentsBySalary(salaryId) {
 
 /**
  * Enregistre un paiement pour un salaire.
+ * L'API Dolibarr n'accepte les créations de paiement que via l'endpoint
+ * imbriqué POST /salaries/{id}/payments (et non /salaries/payments qui
+ * n'existe qu'en GET pour lister — d'où l'erreur 405 Method Not Allowed).
+ * Elle exige aussi le champ "chid" (l'ID du salaire) dans le corps de la
+ * requête, même si l'ID est déjà présent dans l'URL — on l'ajoute donc
+ * automatiquement ici pour éviter l'erreur "chid field missing".
+ * Elle attend le montant sous la forme d'un objet "amounts" indexé par
+ * l'ID du salaire (ex. { "115": 50000 }) et NON un champ "amount" simple
+ * — sans quoi Dolibarr renvoie l'erreur "amounts field missing". On
+ * construit donc cet objet automatiquement à partir du paramètre `amount`.
+ * Format attendu par l'API (exemple) :
+ *   { chid: 115, datepaye: 1751622000, amounts: { "115": 50000 },
+ *     paiementtype: 2, num_payment: "", note: "…", accountid: 1 }
+ * @param {string|number} salaryId - ID du salaire concerné
  * @param {Object} data
- *   Champs requis : fk_salary, datepaye, amount, fk_typepayment
- *   Champs optionnels : num_payment, note_private, fk_account
+ *   Champs requis : datepaye, amount, paiementtype
+ *   Champs optionnels : num_payment, note, accountid
  */
-export async function createSalaryPayment(data) {
-  return dolibarrApi.post('/salaries/payments', data)
+export async function createSalaryPayment(salaryId, data) {
+  const { amount, amounts, ...rest } = data
+  const payload = {
+    chid: salaryId,
+    // On respecte un éventuel objet "amounts" déjà fourni par l'appelant,
+    // sinon on le construit à partir du montant simple "amount".
+    amounts: amounts ?? { [String(salaryId)]: amount },
+    ...rest,
+  }
+  return dolibarrApi.post(`/salaries/${salaryId}/payments`, payload)
 }
 
 // ─────────────────────────────────────────────
@@ -211,23 +233,54 @@ export function filterUsers(users, filters = {}) {
 
 /**
  * Génère un salaire pour chaque userId fourni.
+ *
+ * Règle de paiement automatique : si `salaryPayload.paye === '1'` ET qu'un
+ * `type_payment` est fourni, alors `datepaye` (date de paiement) devient
+ * obligatoire et un règlement est automatiquement enregistré pour chaque
+ * salaire créé (via createSalaryPayment), pour un montant égal à `amount`.
+ * Cela évite d'avoir à ressaisir le règlement manuellement après coup.
+ * `datepaye` n'est jamais transmis à l'endpoint de création du salaire
+ * (il n'existe pas côté table `salary`) : il est extrait du payload avant
+ * l'appel à createSalary et utilisé uniquement pour créer le paiement.
+ *
  * @param {string[]} userIds
- * @param {{ label, amount, datesp, dateep, type_payment?, paye? }} salaryPayload
- * @param {Function} onProgress — callback({ done, total, userId, status, error? })
+ * @param {{ label, amount, datesp, dateep, type_payment?, paye?, datepaye? }} salaryPayload
+ * @param {Function} onProgress — callback({ done, total, userId, status, error?, salaryId?, autoPaid? })
  * @returns {{ created: number, errors: {userId, error}[] }}
  */
 export async function generateSalariesBatch(userIds, salaryPayload, onProgress = () => {}) {
   let created = 0
   const errors = []
 
+  // On sépare datepaye (utile seulement pour le règlement) du reste du payload salaire.
+  const { datepaye, ...salaryFields } = salaryPayload
+  const shouldAutoPay = salaryFields.paye === '1' && !!salaryFields.type_payment && !!datepaye
+
   for (let i = 0; i < userIds.length; i++) {
     const userId = userIds[i]
     try {
-      const payload = { ...salaryPayload, fk_user: String(userId) }
+      const payload = { ...salaryFields, fk_user: String(userId) }
       const resp = await createSalary(payload)
       const newId = typeof resp === 'object' ? resp.id : resp
       created++
-      onProgress({ done: i + 1, total: userIds.length, userId, status: 'ok', salaryId: newId })
+
+      // Règlement automatique : salaire marqué payé + mode de règlement choisi.
+      if (shouldAutoPay) {
+        try {
+          await createSalaryPayment(newId, {
+            datepaye,
+            amount: salaryFields.amount,
+            paiementtype: salaryFields.type_payment,
+          })
+        } catch (payErr) {
+          // Le salaire a bien été créé, seul le règlement automatique a échoué.
+          errors.push({ userId, error: `Salaire créé mais règlement automatique échoué : ${payErr.message}` })
+          onProgress({ done: i + 1, total: userIds.length, userId, status: 'error', error: payErr.message, salaryId: newId })
+          continue
+        }
+      }
+
+      onProgress({ done: i + 1, total: userIds.length, userId, status: 'ok', salaryId: newId, autoPaid: shouldAutoPay })
     } catch (err) {
       errors.push({ userId, error: err.message })
       onProgress({ done: i + 1, total: userIds.length, userId, status: 'error', error: err.message })
@@ -297,4 +350,4 @@ export function getSalaryStatusClass(salary) {
   if (label === 'Payé') return 'badge-success'
   if (label === 'Partiel') return 'badge-warning'
   return 'badge-danger'
-}   
+}
