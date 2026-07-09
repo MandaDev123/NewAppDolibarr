@@ -55,7 +55,9 @@
       <!-- Bar : montant par mois (datesp) -->
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-          <h3 style="font-size: 1rem; font-weight: 600;">Masse salariale par mois</h3>
+          <h3 style="font-size: 1rem; font-weight: 600;">Masse salariale par 
+            
+          </h3>
           <span style="font-size: 0.75rem; color: var(--text-muted);">Référence : date de début du salaire</span>
         </div>
         <div style="height: 280px;">
