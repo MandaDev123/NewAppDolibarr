@@ -11,6 +11,8 @@ import SalaryDetail    from '../views/frontoffice/SalaryDetail.vue';
 import SalaryGenerate  from '../views/frontoffice/Salarygenerate.vue';
 import EmployeeList    from '../views/frontoffice/Employeelist.vue';
 import EmployeeDetail  from '../views/frontoffice/Employeedetail.vue';
+import SalaryIntervalle  from '../views/frontoffice/SalaryIntervalle.vue';
+
 
 // Backoffice Pages
 import Login     from '../views/backoffice/Login.vue';
@@ -42,6 +44,13 @@ const routes = [
         name: 'SalaryCreate',
         component: SalaryCreate
       },
+      {
+        path: 'salary/intervalle',
+        name: 'SalaryIntervalle',
+        component: SalaryIntervalle
+      },
+
+
       {
         path: 'salary/:id',
         name: 'SalaryDetail',

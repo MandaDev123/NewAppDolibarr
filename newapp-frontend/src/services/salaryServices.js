@@ -351,3 +351,67 @@ export function getSalaryStatusClass(salary) {
   if (label === 'Partiel') return 'badge-warning'
   return 'badge-danger'
 }
+/**
+ * Découpe un mois en intervalles de jours ouvrés (hors samedi/dimanche).
+ * @returns {{datesp:number, dateep:number, days:number, ferieDays:number}[]}
+ */
+export function computeMonthIntervals(year, month, feriesSet) {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const intervals = []
+  let current = null
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month - 1, d).getDay()
+    if (dow === 0 || dow === 6) {           // dimanche / samedi → coupe l'intervalle
+      if (current) { intervals.push(current); current = null }
+      continue
+    }
+    const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    if (!current) current = { startDay: d, endDay: d, days: 0, ferieDays: 0 }
+    current.endDay = d
+    current.days++
+    if (feriesSet.has(iso)) current.ferieDays++
+  }
+  if (current) intervals.push(current)
+
+  return intervals.map(iv => ({
+    datesp: Math.floor(new Date(year, month - 1, iv.startDay, 12).getTime() / 1000),
+    dateep: Math.floor(new Date(year, month - 1, iv.endDay, 12).getTime() / 1000),
+    days: iv.days,
+    ferieDays: iv.ferieDays,
+  }))
+}
+
+/** jours normaux * tarif + jours fériés * tarif * (1 + majoration/100) */
+export function computeIntervalAmount(interval, dailyRate, majorationPct) {
+  const normalDays = interval.days - interval.ferieDays
+  const amount = normalDays * dailyRate + interval.ferieDays * dailyRate * (1 + majorationPct / 100)
+  return Math.round(amount * 100) / 100
+}
+
+/** Génère un salaire par intervalle, pour chaque employé — pas de paiement ici */
+export async function generateMonthlySalariesBatch(userIds, { year, month, dailyRate, majoration, label, feriesSet }, onProgress = () => {}) {
+  const intervals = computeMonthIntervals(year, month, feriesSet)
+  let created = 0, done = 0
+  const errors = []
+  const total = userIds.length * intervals.length
+
+  for (const userId of userIds) {
+    for (const interval of intervals) {
+      const amount = computeIntervalAmount(interval, dailyRate, majoration)
+      try {
+        const resp = await createSalary({
+          fk_user: String(userId), label: label || 'Salaire',
+          amount, datesp: interval.datesp, dateep: interval.dateep, paye: '0',
+        })
+        created++; done++
+        onProgress({ done, total, userId, status: 'ok', salaryId: typeof resp === 'object' ? resp.id : resp })
+      } catch (err) {
+        done++
+        errors.push({ userId, error: err.message })
+        onProgress({ done, total, userId, status: 'error', error: err.message })
+      }
+    }
+  }
+  return { created, errors, intervals }
+}
