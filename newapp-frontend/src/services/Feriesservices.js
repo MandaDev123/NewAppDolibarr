@@ -82,6 +82,16 @@ export function formatDate(dateStr) {
   return `${d}/${m}/${y}`
 }
 
+export async function getferiesbymonthyear(){
+  const rows = await getFeries({year})
+  const set = new set()
+  rows.array.forEach(e => {
+    const [, m, d] = e.date.split('-')
+    set.add('${year}-${m}-${d}')
+  })
+  return set
+}
+
 /**
  * Retourne le nom du mois en français.
  */
